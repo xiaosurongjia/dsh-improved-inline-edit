@@ -1,5 +1,5 @@
-// dsh-improved-inline-edit -- client 半部，v2。
-// 加入 Deep 短语池轮换 + 点击中英切换；仅运行中渲染；√ ✗ 状态反馈。
+// dsh-improved-inline-edit -- client 半部，v3。
+// 输入框改为 textarea：随内容自动换行增高（上限 140px），超限显示简约滚动条。
 if (typeof window !== 'undefined' && window.__ModuleLoader__) {
   window.__ModuleLoader__.load({
     id: 'dsh-improved-inline-edit',
@@ -66,7 +66,11 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         '.ms-row.running{border-color:var(--dsw-alias-brand-primary);}',
         '.ms-label{color:var(--dsw-alias-label-secondary);white-space:nowrap;font-size:12px;cursor:pointer;user-select:none;}',
         '.ms-label:hover{color:var(--dsw-alias-label-primary);}',
-        '.ms-input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;font-family:inherit;line-height:1.5;padding:0;}',
+        '.ms-input{flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--dsw-alias-label-primary);font-size:13px;font-family:inherit;resize:none;overflow-y:auto;line-height:1.5;padding:0 2px 0 0;max-height:140px;scrollbar-width:thin;}',
+        '.ms-input::-webkit-scrollbar{width:6px;}',
+        '.ms-input::-webkit-scrollbar-track{background:transparent;}',
+        '.ms-input::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l1);border-radius:3px;}',
+        '.ms-input::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-label-secondary);}',
         '.ms-input::placeholder{color:var(--dsw-alias-label-secondary);}',
         '.ms-btn{flex:none;width:26px;height:26px;border:none;background:var(--dsw-alias-state-warn-primary);cursor:pointer;color:#fff;font-size:14px;line-height:1;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;}',
         '.ms-btn:hover:not(:disabled){filter:brightness(1.15);}',
@@ -109,7 +113,7 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         var draft = draftState[0]
         var setDraft = draftState[1]
 
-        var statusState = React.useState(null) // null | sending | ok | error
+        var statusState = React.useState(null)
         var status = statusState[0]
         var setStatus = statusState[1]
 
@@ -123,7 +127,6 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         var phraseIdx = phraseState[0]
         var setPhraseIdx = phraseState[1]
 
-        // 状态 2s 后自动消失
         React.useEffect(function () {
           if (status === 'ok' || status === 'error') {
             var t = setTimeout(function () { setStatus(null) }, 2000)
@@ -131,7 +134,6 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
           }
         }, [status])
 
-        // 洗牌袋 + 事件驱动轮换
         var drawerRef = React.useRef(null)
         var runningRef = React.useRef(running)
         var sigRef = React.useRef('')
@@ -187,7 +189,6 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         }
         var onKeyDown = function (e) { if (e.key === 'Enter') send() }
 
-        // 仅运行中渲染；运行结束自动消失
         if (!running) return null
 
         var statusGlyph = status === 'ok' ? '✓' : status === 'error' ? '✗' : ''
@@ -200,9 +201,16 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
               onClick: toggleLang,
               title: lang === 'zh' ? '点击切换为英文' : 'Click to switch to Chinese',
             }, '⚡ ' + phraseLabel),
-            React.createElement('input', {
+            React.createElement('textarea', {
               className: 'ms-input',
               value: draft,
+              rows: 1,
+              ref: function (node) {
+                if (node) {
+                  node.style.height = 'auto'
+                  node.style.height = node.scrollHeight + 'px'
+                }
+              },
               onChange: function (e) { setDraft(e.target.value) },
               onKeyDown: onKeyDown,
               placeholder: '输入修改要求，立即注入当前任务…',
