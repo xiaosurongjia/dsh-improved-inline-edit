@@ -20,7 +20,8 @@
     "install.ps1",
     "LICENSE",
     "README.md",
-    "README.en.md"
+    "README.en.md",
+    "assets"
   ],
   "engines": {
     "node": ">=20.3"
