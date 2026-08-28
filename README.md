@@ -49,6 +49,8 @@
 
 ![dsh-improved-inline-edit 界面预览](assets/preview.png)
 
+**演示视频（B 站）：** [点击观看 dsh-improved-inline-edit 使用演示](https://www.bilibili.com/video/BV1D4tN6TEGT)
+
 ---
 
 ## Deep 短语池
@@ -178,16 +180,31 @@
 
 ### 安装
 
-下载本插件到本地，然后运行安装脚本（以 PowerShell 为例）：
+即使没有安装过 DSH，也可以按照下面步骤完成。
 
-```powershell
-# 1. 进入插件目录
-cd dsh-improved-inline-edit
+**1. 安装 Node.js（LTS）**
 
-# 2. 运行安装脚本（会自动探测 profile：desktop 优先，否则 web）
+打开 [Node.js 官网](https://nodejs.org)，下载并安装 LTS 版本，然后关闭并重新打开终端。macOS 使用「终端」，Windows 使用 PowerShell。
+
+**2. 安装 DSH 和 pnpm**
+
+```bash
+npm install --global pnpm @deepseek-ai/dsh
+```
+
+**3. 确认 DSH 已安装**
+
+```bash
+dsh --version
+```
+
+**4. 安装本插件**
+
+```bash
+# 在本插件仓库目录下运行（会自动探测 profile：desktop 优先，否则 web）
 .\install.ps1
 
-# 3. 或者手动指定插件源码目录与目标 profile 目录
+# 或者手动指定插件源码目录与目标 profile 目录
 .\install.ps1 -PluginSource <插件目录> -ProfileDir <你的 profile 目录>
 ```
 
@@ -198,6 +215,22 @@ cd dsh-improved-inline-edit
 3. **校验解析**：确认 `exports['./client']` 能被 DSH 客户端模块系统解析
 
 > 安装完成后需要**完全重启 DSH**（结束进程，不是关窗口），然后刷新页面。若 DSH 自带窗口，重启即可。
+
+**5. 启动 DSH Web**
+
+```bash
+dsh web
+```
+
+保持终端窗口开启。浏览器通常会自动打开；如果没有，请打开终端中显示的 http://127.0.0.1:端口号。
+
+**如果重新打开终端后仍提示 `dsh: command not found`，请改用：**
+
+```bash
+npx @deepseek-ai/dsh web
+```
+
+> 提示：若你同时想要插件市场（marketplace），也可以先运行 `dsh plugin --profile web add @springbrand/dsh-plugin-marketplace` 来安装市场插件，再从市场里安装其他插件。
 
 ### 使用
 
