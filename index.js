@@ -21,13 +21,20 @@ async function readBody(req) {
   }
 }
 
+export const name = 'dsh-improved-inline-edit'
+
+/** 声明依赖服务：webServer（HTTP 注册）+ agents（会话访问）。 */
+export const inject = ['webServer', 'agents']
+
 /**
  * host 插件入口。
  * @param {import('@deepseek-ai/cordis').Context} ctx
  */
 export function apply(ctx) {
+  // webServer 可能在 apply 时刻尚未就绪（启动顺序），先取一次引用
+  const webServer = ctx.webServer ?? ctx.get('webServer')
   ctx.effect(() =>
-    ctx.webServer.register({
+    webServer.register({
       kind: 'prefix',
       path: API_PATH,
       handler: async (req, res) => {
