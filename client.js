@@ -1,16 +1,23 @@
-// dsh-improved-inline-edit -- client 半部，v3。
-// 输入框改为 textarea：随内容自动换行增高（上限 140px），超限显示简约滚动条。
+// dsh-improved-inline-edit — client 半部。
+//
+// 行为：在 composer 上方（conversation.input.dock）注册一条「修改要求」输入条。
+//   - 仅在 agent 运行中（session.running）渲染；运行结束自动消失；
+//   - 左侧 100 条 Deep 短语池轮换（洗牌袋抽取 + 事件驱动 + 点击切中英）；
+//   - 中间输入框为 textarea，随内容自动换行扩展高度（不挤占行内空间）；
+//   - 右侧 ➤ 旋转 90° 的黄色实心圆形发送按钮，√ ✗ 状态显示在按钮右侧；
+//   - 发送走同源 fetch → host API（/dsh-improved-inline-edit/api/steer）。
+//
+// Bundle 格式遵循 DSH client 模块系统：window.__ModuleLoader__.load({id, factory})。
 if (typeof window !== 'undefined' && window.__ModuleLoader__) {
   window.__ModuleLoader__.load({
     id: 'dsh-improved-inline-edit',
-    factory: function (require) {
+    factory: (require) => {
       'use strict'
       var module = { exports: {} }
       var exports = module.exports
       Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' })
 
       var React = require('react')
-      var API_PATH = '/dsh-improved-inline-edit/api'
 
       // ---- Deep 短语池（英/中各 100 条，索引一一对应）----
       var PHRASES_EN = [
@@ -60,6 +67,8 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         '加固中','发货中'
       ]
 
+      var API_PATH = '/dsh-improved-inline-edit/api'
+
       var CSS = [
         '.ms-wrap{box-sizing:border-box;width:100%;max-width:var(--dsh-composer-card-max-width,780px);margin:0 auto;}',
         '.ms-row{display:flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid var(--dsw-alias-border-l1);border-radius:12px;background:var(--dsw-alias-bg-layer-1);font-size:13px;}',
@@ -72,15 +81,16 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         '.ms-input::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l1);border-radius:3px;}',
         '.ms-input::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-label-secondary);}',
         '.ms-input::placeholder{color:var(--dsw-alias-label-secondary);}',
-        '.ms-btn{flex:none;width:26px;height:26px;border:none;background:var(--dsw-alias-state-warn-primary);cursor:pointer;color:#fff;font-size:14px;line-height:1;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;}',
-        '.ms-btn:hover:not(:disabled){filter:brightness(1.15);}',
+        '.ms-btn{flex:none;width:26px;height:26px;border:none;margin-left:auto;background:var(--dsw-alias-brand-primary);cursor:pointer;color:var(--dsw-alias-bg-layer-2,var(--dsw-alias-label-primary));font-size:14px;line-height:1;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;transition:background .12s,opacity .12s;}',
+        '.ms-btn:hover:not(:disabled){background:var(--dsw-alias-brand-primary);filter:brightness(1.12);}',
         '.ms-btn:disabled{opacity:.5;cursor:default;}',
-        '.ms-arrow{display:inline-flex;transform:rotate(-90deg);transform-origin:center;color:#fff;}',
+        '.ms-arrow{display:inline-flex;transform:rotate(-90deg);transform-origin:center;color:inherit;}',
         '.ms-status{flex:none;width:0;opacity:0;overflow:hidden;text-align:center;font-size:14px;line-height:1;transition:width .28s ease,opacity .2s ease;}',
         '.ms-status.ok{width:16px;opacity:1;color:var(--dsw-alias-state-success-primary);}',
         '.ms-status.error{width:16px;opacity:1;color:var(--dsw-alias-state-error-primary);}'
       ].join('')
 
+      // ---- 洗牌袋抽取：一袋抽完才重洗，短期不重复 ----
       function makeDrawer() {
         var bag = []
         var last = -1
@@ -113,7 +123,7 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         var draft = draftState[0]
         var setDraft = draftState[1]
 
-        var statusState = React.useState(null)
+        var statusState = React.useState(null) // null | sending | ok | error
         var status = statusState[0]
         var setStatus = statusState[1]
 
@@ -127,6 +137,7 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         var phraseIdx = phraseState[0]
         var setPhraseIdx = phraseState[1]
 
+        // 状态 2s 后自动消失
         React.useEffect(function () {
           if (status === 'ok' || status === 'error') {
             var t = setTimeout(function () { setStatus(null) }, 2000)
@@ -134,6 +145,7 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
           }
         }, [status])
 
+        // 洗牌袋 + 事件驱动轮换
         var drawerRef = React.useRef(null)
         var runningRef = React.useRef(running)
         var sigRef = React.useRef('')
@@ -189,6 +201,7 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         }
         var onKeyDown = function (e) { if (e.key === 'Enter') send() }
 
+        // 仅运行中渲染；运行结束自动消失
         if (!running) return null
 
         var statusGlyph = status === 'ok' ? '✓' : status === 'error' ? '✗' : ''
@@ -206,6 +219,7 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
               value: draft,
               rows: 1,
               ref: function (node) {
+                // 随内容自动换行增高：先把高度清零再按 scrollHeight 撑开
                 if (node) {
                   node.style.height = 'auto'
                   node.style.height = node.scrollHeight + 'px'
@@ -231,17 +245,19 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         )
       }
 
-      exports.steerDock = SteerDock
-      exports.inject = ['slots']
+      var inject = ['slots']
 
       function apply(ctx) {
         var slots = ctx.slots
+
+        // 注入样式
         if (typeof document !== 'undefined') {
           var tag = document.createElement('style')
           tag.dataset.plugin = 'dsh-improved-inline-edit'
           tag.textContent = CSS
           document.head.appendChild(tag)
         }
+
         ctx.effect(function () {
           return slots.inject('conversation.input.dock', function () {
             return slots.register(
@@ -252,7 +268,10 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         }, 'dsh-improved-inline-edit: input dock')
       }
 
+      exports.steerDock = SteerDock
+      exports.inject = inject
       exports.apply = apply
+
       return module.exports
     },
   })
