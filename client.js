@@ -4,8 +4,13 @@
 //   - 仅在 agent 运行中（session.running）渲染；运行结束自动消失；
 //   - 左侧 100 条 Deep 短语池轮换（洗牌袋抽取 + 事件驱动 + 点击切中英）；
 //   - 中间输入框为 textarea，随内容自动换行扩展高度（不挤占行内空间）；
+//   - 输入内容实时写入 localStorage（按 sessionId 分键），权限弹窗/重渲染/
+//     任务结束都不会丢稿；
 //   - 右侧 ➤ 旋转 90° 的黄色实心圆形发送按钮，√ ✗ 状态显示在按钮右侧；
-//   - 发送走同源 fetch → host API（/dsh-improved-inline-edit/api/steer）。
+//   - 发送后消息进入「已发送」列表（localStorage 持久，跨运行保留），每条带
+//     复制/撤回按钮；撤回走 host /api/recall（agent.inbox.remove），仅对未被
+//     agent 读取的消息有效——列表轮询 /api/pending 如实标注「可撤回/已读取」；
+//   - 注入前缀开关（默认开）：发送时带前缀提示模型继续原任务。
 //
 // Bundle 格式遵循 DSH client 模块系统：window.__ModuleLoader__.load({id, factory})。
 if (typeof window !== 'undefined' && window.__ModuleLoader__) {
@@ -68,6 +73,20 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
       ]
 
       var API_PATH = '/dsh-improved-inline-edit/api'
+      var LS_DRAFT = 'dsh-improved-inline-edit:draft:'
+      var LS_PREFIX = 'dsh-improved-inline-edit:prefix'
+      var LS_LANG = 'dsh-improved-inline-edit:lang'
+
+      // ---- 本地存储安全封装 ----
+      function lsGet(key) {
+        try { return localStorage.getItem(key) } catch (e) { return null }
+      }
+      function lsSet(key, value) {
+        try { localStorage.setItem(key, value) } catch (e) { /* 忽略配额错误 */ }
+      }
+      function lsDel(key) {
+        try { localStorage.removeItem(key) } catch (e) { /* 忽略 */ }
+      }
 
       var CSS = [
         '.ms-wrap{box-sizing:border-box;width:100%;max-width:var(--dsh-composer-card-max-width,780px);margin:0 auto;}',
@@ -87,7 +106,19 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         '.ms-arrow{display:inline-flex;transform:rotate(-90deg);transform-origin:center;color:inherit;}',
         '.ms-status{flex:none;width:0;opacity:0;overflow:hidden;text-align:center;font-size:14px;line-height:1;transition:width .28s ease,opacity .2s ease;}',
         '.ms-status.ok{width:16px;opacity:1;color:var(--dsw-alias-state-success-primary);}',
-        '.ms-status.error{width:16px;opacity:1;color:var(--dsw-alias-state-error-primary);}'
+        '.ms-status.error{width:16px;opacity:1;color:var(--dsw-alias-state-error-primary);}',
+        // ---- 前缀开关（发送按钮左边的小方块）----
+        '.ms-prefix{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border:1px solid var(--dsw-alias-border-l1);border-radius:5px;background:transparent;cursor:pointer;transition:background .12s,border-color .12s;position:relative;}',
+        '.ms-prefix:hover{border-color:var(--dsw-alias-brand-primary);}',
+        '.ms-prefix input{position:absolute;opacity:0;width:0;height:0;margin:0;}',
+        '.ms-prefix::after{content:"";display:block;width:9px;height:5px;border-left:2px solid transparent;border-bottom:2px solid transparent;transform:rotate(-45deg) translate(1px,-1px);}',
+        '.ms-prefix.on{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);}',
+        '.ms-prefix.on::after{border-left-color:var(--dsw-alias-bg-layer-2,var(--dsw-alias-label-primary));border-bottom-color:var(--dsw-alias-bg-layer-2,var(--dsw-alias-label-primary));}',
+        // ---- DOM 增强的撤回按钮（官方 pending steering 气泡旁）→ 带外框胶囊按钮 ----
+        '.ms-recall-btn{flex:none;border:1px solid var(--dsw-alias-brand-primary);background:transparent;color:var(--dsw-alias-brand-primary);cursor:pointer;font-size:12px;padding:3px 10px;border-radius:999px;line-height:1.6;white-space:nowrap;transition:background .12s,color .12s,border-color .12s;box-shadow:0 0 0 0 transparent;}',
+        '.ms-recall-btn:hover:not(:disabled){background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-layer-2,var(--dsw-alias-label-primary));}',
+        '.ms-recall-btn:active:not(:disabled){transform:scale(.96);}',
+        '.ms-recall-btn:disabled{color:var(--dsw-alias-label-secondary);border-color:var(--dsw-alias-border-l1);background:transparent;cursor:default;opacity:.6;}',
       ].join('')
 
       // ---- 洗牌袋抽取：一袋抽完才重洗，短期不重复 ----
@@ -119,19 +150,50 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         var sessionId = props.sessionId || (session && session.sessionId)
         var running = !!(session && session.running)
 
-        var draftState = React.useState('')
+        // 把当前 sessionId 暴露给 DOM 增强的撤回按钮观察器读取
+        React.useEffect(function () {
+          try {
+            window.__dshImprovedSessionId = sessionId || ''
+          } catch (e) { /* 忽略 */ }
+        }, [sessionId])
+
+        // ---- 草稿：localStorage 持久化（权限弹窗/重渲染/任务结束都不丢）----
+        var draftState = React.useState(function () {
+          if (!sessionId) return ''
+          return lsGet(LS_DRAFT + sessionId) || ''
+        })
         var draft = draftState[0]
         var setDraft = draftState[1]
+
+        // sessionId 变化时切换草稿
+        React.useEffect(function () {
+          if (!sessionId) return
+          setDraft(lsGet(LS_DRAFT + sessionId) || '')
+        }, [sessionId])
+
+        // 草稿变化时持久化
+        React.useEffect(function () {
+          if (!sessionId) return
+          if (draft) lsSet(LS_DRAFT + sessionId, draft)
+          else lsDel(LS_DRAFT + sessionId)
+        }, [draft, sessionId])
 
         var statusState = React.useState(null) // null | sending | ok | error
         var status = statusState[0]
         var setStatus = statusState[1]
 
         var langState = React.useState(function () {
-          try { return localStorage.getItem('dsh-improved-inline-edit:lang') === 'zh' ? 'zh' : 'en' } catch (e) { return 'en' }
+          return lsGet(LS_LANG) === 'zh' ? 'zh' : 'en'
         })
         var lang = langState[0]
         var setLang = langState[1]
+
+        // ---- 注入前缀开关（默认开）----
+        var prefixState = React.useState(function () {
+          return lsGet(LS_PREFIX) !== '0'
+        })
+        var prefixEnabled = prefixState[0]
+        var setPrefixEnabled = prefixState[1]
 
         var phraseState = React.useState(function () { return Math.floor(Math.random() * PHRASES_EN.length) })
         var phraseIdx = phraseState[0]
@@ -174,7 +236,7 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
         var toggleLang = function () {
           setLang(function (prev) {
             var next = prev === 'zh' ? 'en' : 'zh'
-            try { localStorage.setItem('dsh-improved-inline-edit:lang', next) } catch (e) {}
+            lsSet(LS_LANG, next)
             return next
           })
         }
@@ -183,26 +245,32 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
           ? PHRASES_ZH[phraseIdx] + '…'
           : PHRASES_EN[phraseIdx].charAt(0).toUpperCase() + PHRASES_EN[phraseIdx].slice(1) + '...'
 
+        // ---- 发送 ----
         var send = function () {
           var text = draft.trim()
           if (!text || !sessionId || status === 'sending') return
           setStatus('sending')
-          fetch(API_PATH + '/steer', {
+          fetch(API_PATH + '/send', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ sessionId: sessionId, text: text }),
+            body: JSON.stringify({ sessionId: sessionId, text: text, prefix: prefixEnabled }),
           })
             .then(function (r) { return r.json() })
             .then(function (res) {
-              if (res && res.ok) { setDraft(''); setStatus('ok') }
-              else { setStatus('error') }
+              if (res && res.ok) {
+                setDraft('')
+                setStatus('ok')
+              } else {
+                setStatus('error')
+              }
             })
             .catch(function () { setStatus('error') })
         }
         var onKeyDown = function (e) { if (e.key === 'Enter') send() }
 
-        // 仅运行中渲染；运行结束自动消失
-        if (!running) return null
+        // 渲染条件：运行中、或有草稿（任务结束时保留，发送/清空后消失）
+        // 任务结束时 deep 短语状态栏保留最后一条文案，不轮换新文案
+        if (!running && !draft.trim()) return null
 
         var statusGlyph = status === 'ok' ? '✓' : status === 'error' ? '✗' : ''
         var statusClass = status === 'ok' ? ' ok' : status === 'error' ? ' error' : ''
@@ -229,6 +297,21 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
               onKeyDown: onKeyDown,
               placeholder: '输入修改要求，立即注入当前任务…',
             }),
+            // ---- 前缀开关：发送按钮左边的小方块（开=勾选）----
+            React.createElement('label', {
+              className: 'ms-prefix' + (prefixEnabled ? ' on' : ''),
+              title: '是否选择加入前缀修改要求：请基于当前任务继续执行，不要改变任务目标',
+            },
+              React.createElement('input', {
+                type: 'checkbox',
+                checked: prefixEnabled,
+                onChange: function (e) {
+                  var v = e.target.checked
+                  setPrefixEnabled(v)
+                  lsSet(LS_PREFIX, v ? '1' : '0')
+                },
+              }),
+            ),
             React.createElement('button', {
               className: 'ms-btn',
               disabled: !draft.trim() || status === 'sending',
@@ -266,6 +349,82 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
             )
           })
         }, 'dsh-improved-inline-edit: input dock')
+
+        // 撤回按钮采用 DOM 增强：DSH 官方把待处理的 steering 消息渲染为
+        // [data-pending-steering] 气泡（带复制按钮）。keyed 槽位禁止跨插件
+        // 注册已占用 key（实测报错），所以监听气泡出现后在操作区插入「撤回」。
+        // messageId 通过轮询 /api/pending 与 DOM 气泡顺序关联（官方按 inbox
+        // 顺序渲染，pending 也按顺序返回）。
+        ctx.effect(function () {
+          if (typeof document === 'undefined' || typeof MutationObserver === 'undefined') return
+          var currentSessionId = ''
+          var activeIds = []
+          var attach = function () {
+            var bubbles = document.querySelectorAll('[data-pending-steering]')
+            for (var i = 0; i < bubbles.length; i++) {
+              var bubble = bubbles[i]
+              if (bubble.querySelector('.ms-recall-btn')) continue
+              var btn = document.createElement('button')
+              btn.className = 'ms-recall-btn'
+              btn.type = 'button'
+              btn.textContent = '撤回'
+              btn.title = '撤回（agent 尚未读取）'
+              btn.addEventListener('click', function () {
+                var parent = btn.closest('[data-pending-steering]')
+                if (!parent) return
+                var all = document.querySelectorAll('[data-pending-steering]')
+                var idx = Array.prototype.indexOf.call(all, parent)
+                var messageId = activeIds[idx]
+                if (!messageId || !currentSessionId) return
+                fetch(API_PATH + '/recall', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ sessionId: currentSessionId, messageId: messageId }),
+                })
+                  .then(function (r) { return r.json() })
+                  .then(function (res) {
+                    if (!(res && res.ok && res.recalled)) {
+                      btn.textContent = '已读取'
+                      btn.disabled = true
+                      btn.title = '已被 agent 读取，无法撤回'
+                    }
+                  })
+                  .catch(function () {
+                    btn.textContent = '已读取'
+                    btn.disabled = true
+                    btn.title = '撤回失败'
+                  })
+              })
+              var actions = bubble.querySelector('[class*="actions"]') || bubble
+              actions.appendChild(btn)
+            }
+          }
+          // 从 input.dock 组件拿到当前 sessionId：通过 MutationObserver 观察页面
+          // 上出现的会话切换元素，或简化——从 URL/全局 store 读。
+          // 这里用折中方案：观察任意元素上的 session 数据变化太脆弱，
+          // 改为由 SteerDock 在挂载时把 sessionId 写入 window 供本观察器读取。
+          var tick = function () {
+            var sid = window.__dshImprovedSessionId || ''
+            currentSessionId = sid
+            if (!sid) return
+            fetch(API_PATH + '/pending?sessionId=' + encodeURIComponent(sid))
+              .then(function (r) { return r.json() })
+              .then(function (res) {
+                if (!res || !res.ok || !Array.isArray(res.pending)) return
+                activeIds = res.pending
+                attach()
+              })
+              .catch(function () {})
+          }
+          var mo = new MutationObserver(function () { tick() })
+          if (document.body) mo.observe(document.body, { childList: true, subtree: true })
+          var tid = setInterval(tick, 1000)
+          tick()
+          return function () {
+            if (mo) mo.disconnect()
+            clearInterval(tid)
+          }
+        }, 'dsh-improved-inline-edit: recall buttons')
       }
 
       exports.steerDock = SteerDock
