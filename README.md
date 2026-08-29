@@ -47,15 +47,21 @@
 
 ## 界面预览
 
+**2026.8.29**
+
 **新增撤回功能：** 在消息气泡旁增加「撤回」按钮，未被读取时可撤回，已读取则变灰。
 
 ![撤回功能预览](assets/preview-recall.png)
+
+**2026.8.29**
 
 **新增注入引导前缀功能（可选）：** 开启时发送的消息格式：【修改要求｜请基于当前任务继续执行，不要改变任务目标】 + 你的内容
 
 ![注入引导前缀预览](assets/preview-prefix.png)
 
-![dsh-improved-inline-edit 界面预览（2026.8.28）](assets/preview.png)
+**2026.8.28**
+
+![dsh-improved-inline-edit 界面预览](assets/preview.png)
 
 **演示视频（B 站）：** [点击观看 dsh-improved-inline-edit 使用演示](https://www.bilibili.com/video/BV1D4tN6TEGT)
 
