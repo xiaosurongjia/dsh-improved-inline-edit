@@ -207,30 +207,23 @@ if (typeof window !== 'undefined' && window.__ModuleLoader__) {
           }
         }, [status])
 
-        // 洗牌袋 + 事件驱动轮换
+        // 洗牌袋 + 节流轮换（适配 dsh 0.1.2+ 的 SessionSnapshot：
+        // 该对象不再提供 runningCalls / partial，原"事件驱动"逻辑读 session.runningCalls.length，
+        // 会在 agent 运行时抛 TypeError 导致输入条渲染崩溃。
+        // 现改为：运行开始立即换一条，运行期间按 >=5s 节流轮换，不依赖任何已删除字段）
         var drawerRef = React.useRef(null)
         var runningRef = React.useRef(running)
-        var sigRef = React.useRef('')
+        var lastSwapRef = React.useRef(0)
         React.useEffect(function () {
           if (!drawerRef.current) drawerRef.current = makeDrawer()
           var nowRunning = running
           var wasRunning = runningRef.current
           runningRef.current = nowRunning
-          if (nowRunning && !wasRunning) {
-            setPhraseIdx(drawerRef.current())
-            sigRef.current = ''
-            return
-          }
           if (!nowRunning) return
-          var calls = session ? session.runningCalls : []
-          var partial = session && session.partial && session.partial.content
-            ? session.partial.content.filter(function (b) { return b.type === 'reasoning' || b.type === 'text' }).length
-            : 0
-          var sig = calls.length + ':' + partial
-          if (sig !== sigRef.current) {
-            sigRef.current = sig
-            setPhraseIdx(drawerRef.current())
-          }
+          var now = Date.now()
+          if (wasRunning && lastSwapRef.current && now - lastSwapRef.current < 5000) return
+          lastSwapRef.current = now
+          setPhraseIdx(drawerRef.current())
         }, [running, session])
 
         var toggleLang = function () {
