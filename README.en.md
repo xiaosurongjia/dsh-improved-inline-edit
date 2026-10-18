@@ -6,6 +6,8 @@ Ever been watching DSH (DeepSeek Harness) grind through a long task and thought:
 
 **dsh-improved-inline-edit** exists for exactly that moment. It makes **"interrupt"** and **"continue"** compatible: while the agent is running, a **steer strip** appears above the composer. Type your request, hit send, and the message is **seamlessly injected into the agent's next decision step** via the official `agent.steer()` mechanism — the conversation keeps going, the task keeps running, nothing is lost.
 
+> **v4.0** — DSH `0.2.1-rc.2` compatibility, drag & drop / paste images and text files, a quick-phrase library, an editable (import/export) phrase pool, recall-back-into-draft, and a flowing gradient status line.
+
 ---
 
 ## ✨ Feature Highlights
@@ -13,6 +15,11 @@ Ever been watching DSH (DeepSeek Harness) grind through a long task and thought:
 | Feature | What it does |
 | --- | --- |
 | 🎯 **True mid-run steering** | Not a new message that derails the flow — injected straight into the **running agent's next decision** (official `agent.steer()`), so it continues *with your request in mind* |
+| 📎 **Drop / paste attachments** | Drag images or text files into the strip (or Ctrl+V) and send them **as one steer message**; images go through DSH's official attachment pipeline and the model's vision capability is checked first |
+| 🗂 **Quick phrases** | Save the current draft as a reusable phrase and insert it with one click (up to 20, stored locally) |
+| ✏️ **Editable phrase pool** | Edit the 100-phrase Deep pool, import/export JSON, reset to defaults |
+| ↩️ **Recall back into the draft** | Recall a not-yet-read message and its text returns to the input box, ready to edit and resend |
+| 🌈 **Flowing gradient copy** | The status phrase flows through deep blue → violet → cyan on a 4 s loop — it keeps moving even when the OS reduces motion |
 | 👻 **Visible only while running** | The strip appears only while the agent is working; it **auto-disappears** when the run ends — zero UI clutter when idle |
 | 📝 **Auto-growing input** | A textarea that **wraps and grows with your content** (capped at 140px) — long requests are never truncated to one line, typing feels natural |
 | 🐋 **100-phrase Deep pool** | Status copy rotates as the agent works (dsh-deep-verbs style): *Deep diving… Deep fermenting…* — click to **toggle EN/ZH**. Even busywork can be playful |
@@ -57,8 +64,13 @@ The installer:
 
 1. Let an agent run (send a message)
 2. The steer strip appears above the composer
-3. Type your request (multi-line supported), press **Enter** or click **➤**
+3. Type your request (multi-line supported), press **Enter** or click **➤** (Shift+Enter inserts a newline; IME composition never sends early)
 4. The agent continues on your request — the conversation never stopped
+5. **Attachments**: drag an image or text file into the strip, or Ctrl+V in the input; thumbnails/chips appear and go out with the text as one steer message (images require a vision-capable model)
+6. **Phrases**: click ⚡ to save the draft as a quick phrase or insert one; the same panel edits the 100-phrase pool and imports/exports JSON
+7. **Recall**: click "Recall · Ns" on a pending bubble; the original text returns to the input box
+
+> Attachments need one full DSH restart (host half). A page refresh alone keeps text steering working and asks you to restart when you drop a file.
 
 ---
 
@@ -70,16 +82,18 @@ The installer:
 │  ┌────────────────────────────────────────────┐   │
 │  │ ⚡ Deep diving…  [input]  [➤] [√]          │   │
 │  └────────────────────────────────────────────┘   │
-│        │ same-origin fetch POST /dsh-improved-inline-edit/api/steer
+│        │ same-origin fetch POST /dsh-improved-inline-edit/api/send
 └────────▼───────────────────────────────────────────┘
 ┌────────────── Host (Node) ─────────────────────────┐
 │  ctx.webServer route → ctx.agents.get(sessionId)   │
+│  images → ctx.attachments.admitPromptContent()      │
+│  files  → ctx.attachments.admitEncodedFile()        │
 │       → agent.steer(userMessage)                   │
 │  (injects into the running agent's next-step inbox)│
 └────────────────────────────────────────────────────┘
 ```
 
-- **Host half** (`index.js`): registers `POST /dsh-improved-inline-edit/api/steer`, builds a standard user message, and calls `agent.steer()`.
+- **Host half** (`index.js`): registers `POST /api/send`, `/api/recall`, `/api/pending`, `/api/limits`; admits attachments through the official attachment service, builds a standard user message, and calls `agent.steer()`.
 - **Client half** (`client.js`): registers the strip on the `conversation.input.dock` slot and calls the host API via same-origin `fetch`.
 
 ---
